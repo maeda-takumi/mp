@@ -24,7 +24,7 @@ hf_cache/
 models/
 # ↑ オフライン同梱のモデルは容量が巨大なので基本はGitに入れない前提
 #   ※必要なら後で例外ルールを作る
-
+vendor/
 # --- OS ---
 .DS_Store
 Thumbs.db
