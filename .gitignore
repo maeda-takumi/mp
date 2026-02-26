@@ -1,0 +1,30 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.so
+*.egg-info/
+dist/
+build/
+*.spec
+
+# --- venv ---
+venv/
+.venv/
+
+# --- Streamlit ---
+.streamlit/
+*.log
+
+# --- Hugging Face / Whisper cache ---
+.cache/
+.hf_cache/
+hf_cache/
+models/
+# ↑ オフライン同梱のモデルは容量が巨大なので基本はGitに入れない前提
+#   ※必要なら後で例外ルールを作る
+
+# --- OS ---
+.DS_Store
+Thumbs.db
