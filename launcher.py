@@ -4,8 +4,10 @@ import time
 import subprocess
 import webbrowser
 from pathlib import Path
+from typing import Optional
 import runpy
 import socket
+import tempfile
 
 
 
@@ -28,6 +30,13 @@ def runtime_base_dir() -> Path:
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
+
+def _bundled_base_dir() -> Optional[Path]:
+    """PyInstaller 展開先(_MEIPASS)を返す。非凍結時は None。"""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass)
+    return None
 
 def build_env() -> dict:
     env = os.environ.copy()
@@ -95,7 +104,17 @@ def main():
 
     app_path = base / "app.py"
     if not app_path.exists():
-        raise FileNotFoundError(f"app.py not found: {app_path}")
+        # 配布フォルダに app.py が無い場合は、EXEに同梱した app.py を使う
+        bundled = _bundled_base_dir()
+        if bundled:
+            bundled_app = bundled / "app.py"
+            if bundled_app.exists():
+                # Streamlitは実ファイルパスを要求するため一時ファイルへ展開
+                tmp_dir = Path(tempfile.mkdtemp(prefix="transcriber_"))
+                app_path = tmp_dir / "app.py"
+                app_path.write_text(bundled_app.read_text(encoding="utf-8"), encoding="utf-8")
+        if not app_path.exists():
+            raise FileNotFoundError(f"app.py not found: {base / 'app.py'}")
 
     cmd = [
         sys.executable,

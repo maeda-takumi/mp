@@ -3,8 +3,13 @@ $ErrorActionPreference = 'Stop'
 Write-Host '[1/4] Installing PyInstaller...'
 py -m pip install -U pyinstaller
 
-Write-Host '[2/4] Building launcher.exe (one-folder compatible layout)...'
-py -m PyInstaller --noconfirm --clean --name transcriber launcher.py
+Write-Host '[2/4] Building launcher.exe (bundle streamlit + app.py fallback)...'
+py -m PyInstaller --noconfirm --clean --name transcriber launcher.py `
+  --hidden-import streamlit `
+  --collect-submodules streamlit `
+  --collect-data streamlit `
+  --add-data "app.py;."
+  
 
 Write-Host '[3/4] Preparing distributable folder dist/transcriber_app ...'
 $target = 'dist/transcriber_app'

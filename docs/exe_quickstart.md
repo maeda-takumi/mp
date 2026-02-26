@@ -24,7 +24,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
 
 ## 配布時の最低構成
 - `transcriber.exe`
-- `app.py`
 - `ffmpeg/`
 - `models/`
 
