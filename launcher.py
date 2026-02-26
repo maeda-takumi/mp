@@ -38,9 +38,8 @@ def build_env() -> dict:
     ffmpeg_dir = base / "ffmpeg"
     env["PATH"] = str(ffmpeg_dir) + os.pathsep + env.get("PATH", "")
 
-    # ffmpeg フォルダを PATH 先頭へ（手動配置）
-    ffmpeg_dir = base / "ffmpeg"
-    env["PATH"] = str(ffmpeg_dir) + os.pathsep + env.get("PATH", "")
+    # app.py 側のモデル/ffmpeg探索基準を launcher の場所に固定
+    env["TRANSCRIBER_BASE_DIR"] = str(base)
     env["HF_HUB_DISABLE_XET"] = "1"
 
     # キャッシュは実行場所配下（手動配布一式で完結しやすくする）
@@ -99,7 +98,11 @@ def main():
         raise FileNotFoundError(f"app.py not found: {app_path}")
 
     cmd = [
-        sys.executable, "-m", "streamlit", "run", str(app_path),
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app_path),
         "--server.headless=true",
         f"--server.port={port}",
         "--server.address=127.0.0.1",
