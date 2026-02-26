@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -13,20 +14,31 @@ st.title("音声ファイル文字起こし（Whisper / ローカル無料）")
 # -------------------------
 # Path helpers
 # -------------------------
-def app_base_dir() -> Path:
-    # PyInstaller onefile でも onedir でも動くようにする
-    # onedir配布なら通常は app.py のある場所が基準でOK
+def runtime_base_dir() -> Path:
+    """
+    手動配布を前提に、以下の順でベースディレクトリを決定する。
+      1. launcher から渡される TRANSCRIBER_BASE_DIR
+      2. 凍結実行時の実行ファイル配置ディレクトリ
+      3. 通常実行時の app.py 配置ディレクトリ
+    """
+    env_dir = os.environ.get("TRANSCRIBER_BASE_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
     return Path(__file__).resolve().parent
 
 
 def bundled_model_path(model_key: str) -> Path:
     """
-    例:
-      models/faster-whisper-medium
+    期待配置:
       models/faster-whisper-small
+      models/faster-whisper-medium
       models/faster-whisper-large-v3
     """
-    base = app_base_dir()
+    base = runtime_base_dir()
     mapping = {
         "small": base / "models" / "faster-whisper-small",
         "medium": base / "models" / "faster-whisper-medium",
@@ -35,15 +47,15 @@ def bundled_model_path(model_key: str) -> Path:
     return mapping[model_key]
 
 
-def resolve_model_source(model_key: str) -> str:
+def resolve_model_source(model_key: str) -> str | None:
     """
-    同梱モデルがあればそのパスを返す。
-    なければ model_key ("small"/"medium"/"large-v3") を返して通常DL/キャッシュに任せる。
+    手動配置されたモデルのみを使用する。
+    未配置時は None を返して呼び出し側で明示エラーにする。
     """
     p = bundled_model_path(model_key)
     if p.exists() and p.is_dir():
         return str(p)
-    return model_key
+    return None
 
 
 # -------------------------
@@ -58,21 +70,29 @@ with st.sidebar:
 
     # 状態表示（配布時のトラブルを減らす）
     src = resolve_model_source(model_key)
-    if src != model_key:
-        st.success(f"同梱モデル使用: {src}")
+    if src:
+        st.success(f"手動配置モデル検出: {src}")
     else:
-        st.warning("同梱モデルが見つからないため、通常のモデル取得（DL/キャッシュ）になります。"
-                   "（オフライン配布では models フォルダ同梱を確認してください）")
+        required = bundled_model_path(model_key)
+        st.error(
+            "モデルが見つかりません。\n"
+            f"以下のフォルダを配置してください:\n{required}"
+        )
 
 
 @st.cache_resource
 def load_model(model_key: str):
     model_src = resolve_model_source(model_key)
-    # CPUなら int8 が軽くておすすめ
+    if not model_src:
+        required = bundled_model_path(model_key)
+        raise FileNotFoundError(
+            "モデルが見つかりません。\n"
+            "手動配布構成では自動ダウンロードを行いません。\n"
+            f"必要フォルダ: {required}"
+        )
     return WhisperModel(model_src, device="cpu", compute_type="int8")
 
 
-# ここでモデルロード（失敗したら画面に理由を出す）
 try:
     model = load_model(model_key)
 except Exception as e:
@@ -99,14 +119,17 @@ if uploaded:
             vad_filter=vad_filter,
         )
     except Exception as e:
-        st.error("文字起こしに失敗しました。ffmpeg同梱/PATH設定、音声ファイル形式を確認してください。")
+        ffmpeg_path = runtime_base_dir() / "ffmpeg"
+        st.error(
+            "文字起こしに失敗しました。\n"
+            "ffmpeg の配置または PATH 設定を確認してください。\n"
+            f"推奨配置: {ffmpeg_path}"
+        )
         st.exception(e)
         os.remove(audio_path)
         st.stop()
 
-    # 整形テキスト
     text = "\n".join([s.text.strip() for s in segments]).strip()
-    # タイムスタンプ付き
     timed = "\n".join([f"[{s.start:7.2f} - {s.end:7.2f}] {s.text.strip()}" for s in segments]).strip()
 
     os.remove(audio_path)
@@ -115,7 +138,7 @@ if uploaded:
     with col1:
         st.subheader("文字起こし結果")
         st.text_area("text", text, height=420)
-        st.download_button("TXTダウンロード", text.encode("utf-8"), file_name="transcript.txt")
+        st.download_button("TXTダウンロード（timestamp）", timed.encode("utf-8"), file_name="transcript_timestamp.txt")
 
     with col2:
         st.subheader("タイムスタンプ付き")

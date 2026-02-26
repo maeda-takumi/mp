@@ -8,42 +8,44 @@ import runpy
 import socket
 
 
+
 # -----------------------------
-# 重要：Transcriber.exe -m streamlit ... のときは
+# 重要：app.exe -m streamlit ... のときは
 # launcherを走らせず streamlit を実行する（再帰防止）
 # -----------------------------
 def _maybe_dispatch_to_streamlit():
     argv = sys.argv
     if len(argv) >= 3 and argv[1] == "-m" and argv[2] == "streamlit":
-        # streamlit 側に渡す argv を整形
-        # 例: Transcriber.exe -m streamlit run app.py ...
-        # -> sys.argv = ["streamlit", "run", "app.py", ...]
         sys.argv = ["streamlit"] + argv[3:]
         runpy.run_module("streamlit", run_name="__main__")
         raise SystemExit(0)
 
 
-def base_dir() -> Path:
-    if hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+def runtime_base_dir() -> Path:
+    # 手動配布（app.exe / models / ffmpeg）を優先するため
+    # 凍結時は実行ファイルのあるディレクトリを基準にする
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
 def build_env() -> dict:
     env = os.environ.copy()
 
-    # vendor を PATH 先頭へ（同梱ffmpeg）
-    vendor = base_dir() / "vendor"
-    env["PATH"] = str(vendor) + os.pathsep + env.get("PATH", "")
+    base = runtime_base_dir()
 
-    # telemetry off
-    env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+    # ffmpeg フォルダを PATH 先頭へ（手動配置）
+    ffmpeg_dir = base / "ffmpeg"
+    env["PATH"] = str(ffmpeg_dir) + os.pathsep + env.get("PATH", "")
 
-    # 過去の xet 由来エラー回避
+    # ffmpeg フォルダを PATH 先頭へ（手動配置）
+    ffmpeg_dir = base / "ffmpeg"
+    env["PATH"] = str(ffmpeg_dir) + os.pathsep + env.get("PATH", "")
     env["HF_HUB_DISABLE_XET"] = "1"
 
-    # キャッシュ先をアプリ配下（オフライン運用の保険）
-    hf_home = base_dir() / ".hf_cache"
+    # キャッシュは実行場所配下（手動配布一式で完結しやすくする）
+    hf_home = base / ".hf_cache"
+    hf_home.mkdir(parents=True, exist_ok=True)
     env["HF_HOME"] = str(hf_home)
     env["HUGGINGFACE_HUB_CACHE"] = str(hf_home / "hub")
 
@@ -71,12 +73,28 @@ def find_free_port(start: int = 8501) -> int:
                 continue
     return start
 
+def ensure_ffmpeg_exists(base: Path) -> None:
+    # Windows配布を主眼にしつつ、他OSも一応見る
+    candidates = [base / "ffmpeg" / "ffmpeg.exe", base / "ffmpeg" / "ffmpeg"]
+    if any(p.exists() for p in candidates):
+        return
+
+    expected = candidates[0]
+    raise FileNotFoundError(
+        "ffmpeg が見つかりません。\n"
+        f"期待パス: {expected}\n"
+        "app.exe と同階層に ffmpeg フォルダを配置し、"
+        "ffmpeg(.exe) を入れてください。"
+    )
+
 
 def main():
+    base = runtime_base_dir()
+    ensure_ffmpeg_exists(base)
     port = find_free_port(8501)
     env = build_env()
 
-    app_path = base_dir() / "app.py"
+    app_path = base / "app.py"
     if not app_path.exists():
         raise FileNotFoundError(f"app.py not found: {app_path}")
 
@@ -89,11 +107,10 @@ def main():
 
     proc = subprocess.Popen(cmd, env=env)
 
-    # サーバ起動を待ってからブラウザを開く（localhost接続失敗を防ぐ）
     if wait_port(port, 20.0):
         webbrowser.open(f"http://localhost:{port}")
     else:
-        webbrowser.open(f"http://localhost:{port}")  # それでも一応開く
+        webbrowser.open(f"http://localhost:{port}")
 
     try:
         proc.wait()
